@@ -275,7 +275,7 @@ class Pitch_Controller(Axese_Controller):
     def __init__(self):
         Axese_Controller.__init__(self, possitive_button = 'S', negative_button = 'W')
     
-    def perfome(self, mode = 'angle', **kwargs):
+    def perform(self, mode = 'angle', **kwargs):
         
         if mode == 'angle':
             for key, value in kwargs.items(): 
@@ -305,6 +305,8 @@ class Pitch_Controller(Axese_Controller):
         
         self._Pulse_Width_Modulation(power)
         
+        return 1
+        
 #
 #
 #
@@ -315,7 +317,7 @@ class Roll_Controller(Axese_Controller):
     def __init__(self):
         Axese_Controller.__init__(self, possitive_button = 'D', negative_button = 'A')
     
-    def perfome(self, mode = 'angle', **kwargs):
+    def perform(self, mode = 'angle', **kwargs):
         
         for key, value in kwargs.items(): 
             if key == 'target_angle':
@@ -331,6 +333,8 @@ class Roll_Controller(Axese_Controller):
         print('power :', power)
         
         self._Pulse_Width_Modulation(power)
+        
+        return 1
         
 #
 #
@@ -353,12 +357,15 @@ class Mechanisation_Controller:
         self.Roll  = Roll_Controller()
         self.pool = ThreadPool(processes=3)
         
-    def perfome(self, current_roll, current_pitch, target_roll, target_pitch):
+    def perform(self, current_roll, current_pitch, target_roll, target_pitch):
+        
+        self.Pitch.perform(mode = 'climb', current_climb = current_pitch, target_climb = target_pitch)
+        self.Roll.perform(current_angle = current_roll, target_angle = target_roll)
         
         async_result = [0 for i in range(2)]
         
-        async_result[0] = self.pool.apply_async(self.Pitch.perfome(mode = 'climb', current_climb = current_pitch, target_climb = target_pitch))
-        async_result[1] = self.pool.apply_async(self.Roll.perfome(current_angle = current_roll, target_angle = target_roll))
+        async_result[0] = self.pool.apply_async(self.Pitch.perform, [], {'mode': 'climb', 'current_climb': current_pitch, 'target_climb': target_pitch})
+        async_result[1] = self.pool.apply_async(self.Roll.perform, [], {'current_angle': current_roll, 'target_angle': target_roll})
         
         for i in range(2):
             async_result[i].get()
@@ -418,4 +425,3 @@ class Autopilot:
       
     def __del__(self):
         pass
-    
