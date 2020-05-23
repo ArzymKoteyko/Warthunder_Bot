@@ -17,16 +17,17 @@ S = 0x1F
 D = 0x20
 
 
-KeyCodes = {'W': 0x11,
-            'A': 0x1E,
-            'S': 0x1F,
-            'D': 0x20,
-            'Q': 0x10,
-            'E': 0x12,
-            'F': 0x21,
-            'G': 0x22,
-            '[': 0x1A,
-            ']': 0x1B}
+KeyCodes = {'W'    : 0x11,
+            'A'    : 0x1E,
+            'S'    : 0x1F,
+            'D'    : 0x20,
+            'Q'    : 0x10,
+            'E'    : 0x12,
+            'F'    : 0x21,
+            'G'    : 0x22,
+            '['    : 0x1A,
+            ']'    : 0x1B,
+            'SPACE': 0x00}
 
 # C struct redefinitions 
 PUL = ctypes.POINTER(ctypes.c_ulong)
@@ -277,6 +278,7 @@ class Pitch_Controller(Axese_Controller):
     
     def perform(self, mode = 'angle', **kwargs):
         
+        #print('Pitch')
         if mode == 'angle':
             for key, value in kwargs.items(): 
                 if key == 'target_angle':
@@ -286,6 +288,9 @@ class Pitch_Controller(Axese_Controller):
                     
             delta_angle = target_angle - current_angle
             power = int((sigmoid(delta_angle, 0.03125)-0.5)*200)
+            
+            #print('delta_angle :', delta_angle)    
+            #print('power :', power)
             
         
             
@@ -300,8 +305,14 @@ class Pitch_Controller(Axese_Controller):
             delta_climb *= 4
             power = int((sigmoid(delta_climb, 0.015625)-0.5)*200)
         
-        print('delta_climb :', delta_climb)    
-        print('power :', power)
+            #print('delta_climb :', delta_climb)    
+            #print('power :', power)
+        
+        if mode == 'power':
+            for key, value in kwargs.items():
+                if key == 'power':
+                    power = int(value)
+            #print('power', power)
         
         self._Pulse_Width_Modulation(power)
         
@@ -317,20 +328,20 @@ class Roll_Controller(Axese_Controller):
     def __init__(self):
         Axese_Controller.__init__(self, possitive_button = 'D', negative_button = 'A')
     
-    def perform(self, mode = 'angle', **kwargs):
+    def perform(self, **kwargs):
         
         for key, value in kwargs.items(): 
             if key == 'target_angle':
-                target_angle= value
+                target_angle = value 
             if key == 'current_angle':
-                current_angle = value
+                current_angle = value 
                     
         delta_angle = target_angle - current_angle
         power = int((sigmoid(delta_angle, 0.03125)-0.5)*200)
             
-        
-        print('delta_angle :', delta_angle)    
-        print('power :', power)
+        #print('Roll')
+        #print('delta_angle :', delta_angle)    
+        #print('power :', power)
         
         self._Pulse_Width_Modulation(power)
         
@@ -357,14 +368,32 @@ class Mechanisation_Controller:
         self.Roll  = Roll_Controller()
         self.pool = ThreadPool(processes=3)
         
-    def perform(self, current_roll, current_pitch, target_roll, target_pitch):
-        
-        self.Pitch.perform(mode = 'climb', current_climb = current_pitch, target_climb = target_pitch)
-        self.Roll.perform(current_angle = current_roll, target_angle = target_roll)
+    def perform(self, current_roll, target_roll, pitch_mode = 'climb', **kwargs):
         
         async_result = [0 for i in range(2)]
         
-        async_result[0] = self.pool.apply_async(self.Pitch.perform, [], {'mode': 'climb', 'current_climb': current_pitch, 'target_climb': target_pitch})
+        if pitch_mode == 'angle':
+            for key, value in kwargs.items(): 
+                if key == 'target_angle':
+                    target_angle = value
+                if key == 'current_angle':
+                    current_angle = value
+            async_result[0] = self.pool.apply_async(self.Pitch.perform, [], {'mode': 'angle', 'current_angle': current_angle, 'target_angle': target_angle})
+                
+        elif pitch_mode == 'climb':
+            for key, value in kwargs.items():
+                if key == 'target_climb':
+                    target_climb = value
+                if key == 'current_climb':
+                    current_climb = value
+            async_result[0] = self.pool.apply_async(self.Pitch.perform, [], {'mode': 'climb', 'current_climb': current_climb, 'target_climb': target_climb})
+                
+        elif pitch_mode == 'power':
+            for key, value in kwargs.items(): 
+                if key == 'power':
+                    power = value 
+            async_result[0] = self.pool.apply_async(self.Pitch.perform, [], {'mode': 'power', 'power': power})
+        
         async_result[1] = self.pool.apply_async(self.Roll.perform, [], {'current_angle': current_roll, 'target_angle': target_roll})
         
         for i in range(2):
@@ -381,16 +410,83 @@ class Autopilot:
     
     x = 0.5
     y = 0.5
+    azimuth = 0
+    
+    pitch = 0
+    climb = 0
+    roll  = 0
     
     route = []
+    current_checkpoint_id = 0
     
     def __init__(self):
         
-        self.server = Server_Reader_Controler()
+        self.mechanisation = Mechanisation_Controller()
+        self.server = Server_Reader_Controller()
         self.server.add_server_reader('http://localhost:8111/indicators')
         self.server.add_server_reader('http://localhost:8111/state')
         self.server.add_server_reader('http://localhost:8111/map_obj.json')
         self.server.add_server_reader('http://localhost:8111/map_info.json')
+        
+    def _update_info(self):
+        info = self.server.perform()
+        for entity in info[2]:
+            if entity['icon'] == 'Player':
+                self.x = entity['x']
+                self.y = entity['y']
+        
+        self.azimuth = info[0]['compass']
+        self.pitch   = info[0]['aviahorizon_pitch']
+        self.climb   = info[1]['Vy, m/s']
+        self.roll    = info[0]['aviahorizon_roll']
+        
+        
+    def add_checkpoint_to_route(self, target_x, target_y):
+        self.route.append([target_x, target_y])
+        
+    def remove_checkpoint_from_route(self, checkpoint_id):
+        self.route.pop(checkpoint_id)
+    
+    def _distance_to_next_checkpoint(self):
+        return ((self.x - self.route[self.current_checkpoint_id][0])**2 + (self.y - self.route[self.current_checkpoint_id][1])**2)**0.5
+    
+    def _angle_to_next_checkpoint(self):
+        delta_x = self.x - self.route[self.current_checkpoint_id][0]
+        delta_y = self.y - self.route[self.current_checkpoint_id][1]
+    
+        if delta_x == 0:
+            delta_x = 0.000001
+    
+        tan_betta = delta_y/delta_x
+        betta = np.arctan(tan_betta) * 57.2958
+    
+        #DEBUG
+        #print('tan_betta:', tan_betta, '\t\tbetta:', betta)
+    
+        if delta_x > 0:
+            if delta_y > 0:
+                target_azimuth = 270 + math.fabs(betta)
+            else:
+                target_azimuth = 270 - math.fabs(betta)
+        else:
+            if delta_y > 0:
+                target_azimuth = 90 - math.fabs(betta)
+            else:
+                target_azimuth = 90 + math.fabs(betta)
+    
+        difference_1 = self.azimuth - target_azimuth
+        if difference_1 >= 0:
+            difference_2 = 360 - difference_1
+        else:
+            difference_2 = (360 + difference_1) * -1
+        
+        if math.fabs(difference_1) < math.fabs(difference_2):
+            difference = difference_1
+        else:
+            difference = difference_2
+            
+    
+        return difference
     
     def _chose_climb_rate(self):
         return climb_rate
@@ -405,7 +501,27 @@ class Autopilot:
         return gears
     
     def move_to_next_check_point(self):
-        pass 
+        start_time = time.time()
+        while time.time() - start_time < 180:
+            #self.mechanisation.perform(pitch_mode = 'power', current_roll=self.roll, target_roll=-40, power = 50)
+            
+            angle = self._angle_to_next_checkpoint()
+            print('angle:', angle)
+            if angle > -360 and angle < -10:
+                self.mechanisation.perform(pitch_mode = 'power', current_roll=self.roll, target_roll=60, power = 80)
+            if angle > -10 and angle < -1:
+                self.mechanisation.perform(pitch_mode = 'power', current_roll=self.roll, target_roll=50, power = 10)
+            if angle > -1 and angle < 1:
+                pass
+            if angle > 1 and angle < 10:
+                self.mechanisation.perform(pitch_mode = 'power', current_roll=self.roll, target_roll=-50, power = 10)
+            if angle > 10 and angle < 360:
+                self.mechanisation.perform(pitch_mode = 'power', current_roll=self.roll, target_roll=-60, power = 80)
+            
+            self._update_info()
+            
+
+                
     
     def fly_straight(self):
         pass
