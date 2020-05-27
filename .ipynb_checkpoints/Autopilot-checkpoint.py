@@ -256,14 +256,14 @@ class Axese_Controller:
             if power > 0:
                 PressKey(KeyCodes[self.possitive_button])
                 #print(tick * power, tick * (100 - power))
-                time.sleep(math.fabs(tick * power))
+                time.sleep(tick * math.fabs(power))
                 ReleaseKey(KeyCodes[self.possitive_button])
-                time.sleep(math.fabs(tick * (100 - power)))
+                time.sleep(tick * (100 - math.fabs(power)))
             elif power < 0:
                 PressKey(KeyCodes[self.negative_button])
-                time.sleep(math.fabs(tick * power))
+                time.sleep(tick * math.fabs(power))
                 ReleaseKey(KeyCodes[self.negative_button])
-                time.sleep(math.fabs(tick * (100 - power)))
+                time.sleep(tick * (100 - math.fabs(power)))
             else:
                 time.sleep(self.time_per_cycle)
 
@@ -326,7 +326,7 @@ class Pitch_Controller(Axese_Controller):
 class Roll_Controller(Axese_Controller):
 
     def __init__(self):
-        Axese_Controller.__init__(self, possitive_button = 'A', negative_button = 'D')
+        Axese_Controller.__init__(self, possitive_button = 'D', negative_button = 'A')
     
     def perform(self, **kwargs):
         
@@ -337,11 +337,11 @@ class Roll_Controller(Axese_Controller):
                 current_angle = value 
                     
         delta_angle = target_angle - current_angle
-        power = int((sigmoid(delta_angle, 0.5)-0.5)*200)
+        power = int((sigmoid(delta_angle, 0.03125)-0.5)*200)
             
         #print('Roll')
-        print('delta_angle :', delta_angle)    
-        #print('power :', power)
+        print('delta_angle :', delta_angle, end = '\t\t')    
+        print('power :', power)
         
         self._Pulse_Width_Modulation(power)
         
@@ -412,7 +412,7 @@ class Mechanisation_Controller:
         async_result[1] = self.pool.apply_async(self.Roll.perform, [], {'current_angle': current_roll, 'target_angle': target_roll})
         async_result[2] = self.pool.apply_async(self.Yaw.perform, [], {'power': yaw_power})
         
-        for i in range(2):
+        for i in range(3):
             async_result[i].get()
                
 #========================================================================================================#
@@ -521,7 +521,7 @@ class Autopilot:
     
     def move_to_next_check_point(self):
         start_time = time.time()
-        while time.time() - start_time < 60:
+        while time.time() - start_time < 360:
             #self.mechanisation.perform(pitch_mode = 'power', current_roll=self.roll, target_roll=-40, power = 50)
             
             angle = self._angle_to_next_checkpoint()
@@ -530,23 +530,23 @@ class Autopilot:
             print('distance to point:', self._distance_to_next_checkpoint())
             print('-'*44)
             if angle > -360 and angle < -50:
-                self.mechanisation.perform(pitch_mode = 'power', current_roll=self.roll, target_roll=-90, power = 100, yaw_power = 0)
+                self.mechanisation.perform(pitch_mode = 'power', current_roll=self.roll, target_roll=90, power = 100, yaw_power = 0)
             if angle > -50 and angle < -20:
-                self.mechanisation.perform(pitch_mode = 'power', current_roll=self.roll, target_roll=-30, power = 20, yaw_power = 0)
-            if angle > -20 and angle < -5:
+                self.mechanisation.perform(pitch_mode = 'power', current_roll=self.roll, target_roll=30, power = 20, yaw_power = 0)
+            if angle > -20 and angle < -1:
                 self.mechanisation.perform(pitch_mode = 'power', current_roll=self.roll, target_roll=0, power = 0, yaw_power = -20)
-            if angle > -5 and angle < -0.1:
+            if angle > -1 and angle < -0.1:
                 self.mechanisation.perform(pitch_mode = 'power', current_roll=self.roll, target_roll=0, power = 0, yaw_power = -5)
             if angle > -0.5 and angle < 0.1:
                 pass
-            if angle > 0.5 and angle < 5:
+            if angle > 0.5 and angle < 1:
                 self.mechanisation.perform(pitch_mode = 'power', current_roll=self.roll, target_roll=0, power = 0, yaw_power = 5)
-            if angle > 5 and angle <20:
+            if angle > 1 and angle <20:
                 self.mechanisation.perform(pitch_mode = 'power', current_roll=self.roll, target_roll=0, power = 0, yaw_power = 20)
             if angle > 20 and angle < 50:
-                self.mechanisation.perform(pitch_mode = 'power', current_roll=self.roll, target_roll=30, power = 20, yaw_power = 0)
+                self.mechanisation.perform(pitch_mode = 'power', current_roll=self.roll, target_roll=-30, power = 20, yaw_power = 0)
             if angle > 50 and angle < 360:
-                self.mechanisation.perform(pitch_mode = 'power', current_roll=self.roll, target_roll=90, power = 100, yaw_power = 0)
+                self.mechanisation.perform(pitch_mode = 'power', current_roll=self.roll, target_roll=-90, power = 100, yaw_power = 0)
             
             self._update_info()
             
@@ -571,12 +571,10 @@ class Autopilot:
       
     def __del__(self):
         pass
-    
-    
+
 AI = Autopilot()
 
-AI.add_checkpoint_to_route(0.402030, 0.575304)
-#AI.add_checkpoint_to_route(0.475565, 0.495412)
+AI.add_checkpoint_to_route(0.475565, 0.495412)
 AI.add_checkpoint_to_route(0.5, 0.3)
 AI.add_checkpoint_to_route(0.6, 0.4)
 AI.add_checkpoint_to_route(0.6, 0.6)
